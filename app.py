@@ -201,20 +201,41 @@ def _derive_name(folder: str) -> str:
 
 @app.route("/import")
 def imports():
-    return render_template("import.html", clusters=models.get_clusters())
+    return render_template("import.html",
+                           clusters=models.get_clusters(),
+                           known=models.get_known_smb_locations())
+
+
+def _resolve_source(form):
+    """Return (base_uri, user, password) for an import request.
+
+    If a saved location was chosen (known_id -> a schedule), pull its base and
+    decrypt its stored password server-side, so credentials never round-trip
+    through the browser. Otherwise use the manually entered fields."""
+    known_id = (form.get("known_id") or "").strip()
+    if known_id:
+        try:
+            sched = models.get_schedule(int(known_id))
+        except (TypeError, ValueError):
+            sched = None
+        if sched and (sched["path_uri_base"] or "").lower().startswith("smb://"):
+            password = (models.decrypt_password(sched["smb_pass_enc"])
+                        if sched["smb_pass_enc"] else "")
+            return sched["path_uri_base"], (sched["smb_user"] or ""), password
+    return (form.get("source_uri", "").strip(),
+            form.get("smb_user", "").strip(),
+            form.get("smb_password", ""))
 
 
 @app.route("/import/browse", methods=["POST"])
 def import_browse():
     """AJAX: list the export folders on an SMB share so the user can pick one."""
-    base = request.form.get("source_uri", "").strip()
+    base, user, password = _resolve_source(request.form)
     if not base.lower().startswith("smb://"):
         return jsonify(error="Browsing is only available for smb:// shares. "
                              "For NFS, type the full source path manually."), 400
     try:
-        folders = smb_list_dirs(base,
-                                request.form.get("smb_user", "").strip(),
-                                request.form.get("smb_password", ""))
+        folders = smb_list_dirs(base, user, password)
     except HyperCoreError as e:
         return jsonify(error=str(e)), 502
     return jsonify(folders=folders)
@@ -228,15 +249,14 @@ def import_start():
         flash("Target cluster not found.", "error")
         return redirect(url_for("imports"))
 
-    base = request.form.get("source_uri", "").strip().rstrip("/")
+    base, smb_user, smb_password = _resolve_source(request.form)
+    base = base.rstrip("/")
     folder = request.form.get("source_folder", "").strip().strip("/")
     if not base:
         flash("A source path is required.", "error")
         return redirect(url_for("imports"))
     source_uri = f"{base}/{folder}" if folder else base
 
-    smb_user = request.form.get("smb_user", "").strip()
-    smb_password = request.form.get("smb_password", "")
     target_name = request.form.get("target_name", "").strip()
 
     # Duplicate-name guard: block if the effective name already exists on target.

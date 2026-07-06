@@ -26,26 +26,45 @@
           <div class="hint">The cluster the VM will be imported into.</div>
         </div>
         <div>
-          <label for="source_uri">Source location (share URI)</label>
-          <input type="text" id="source_uri" name="source_uri" class="mono-in" required
-                 placeholder="smb://nas.local/backups/hypercore">
-          <div class="hint">SMB folder that holds the export folders. For NFS, or an
-            off-tool export, type the <em>full</em> path to the export folder here and skip
-            the browse step below.</div>
+          <label for="known_id">Source location</label>
+          <select id="known_id" name="known_id">
+            {% for loc in known %}
+            <option value="{{ loc.ref_id }}" data-base="{{ loc.path_uri_base }}"
+                    data-user="{{ loc.smb_user }}">{{ loc.path_uri_base }} — as {{ loc.smb_user }}</option>
+            {% endfor %}
+            <option value="">Other — enter manually…</option>
+          </select>
+          <div class="hint">Reuse a saved export destination — credentials included —
+            or choose “Other” for a new or NFS location.</div>
         </div>
       </div>
 
-      <div class="grid c2" style="margin-bottom:12px">
-        <div>
-          <label for="smb_user">Share username <span class="hint" style="display:inline">— SMB only</span></label>
-          <input type="text" id="smb_user" name="smb_user" class="mono-in" autocomplete="off"
-                 placeholder="backup-user">
-          <div class="hint">Leave blank for NFS or anonymous shares.</div>
+      <div id="saved-note" class="hint" style="margin:-4px 0 12px; display:none"></div>
+
+      <div id="manual-block">
+        <div class="grid c2" style="margin-bottom:12px">
+          <div>
+            <label for="source_uri">Source location (share URI)</label>
+            <input type="text" id="source_uri" name="source_uri" class="mono-in"
+                   placeholder="smb://nas.local/backups/hypercore">
+            <div class="hint">SMB folder that holds the export folders. For NFS, or an
+              off-tool export, type the <em>full</em> path to the export folder here and skip
+              the browse step below.</div>
+          </div>
+          <div>
+            <label for="smb_user">Share username <span class="hint" style="display:inline">— SMB only</span></label>
+            <input type="text" id="smb_user" name="smb_user" class="mono-in" autocomplete="off"
+                   placeholder="backup-user">
+            <div class="hint">Leave blank for NFS or anonymous shares.</div>
+          </div>
         </div>
-        <div>
-          <label for="smb_password">Share password <span class="hint" style="display:inline">— SMB only</span></label>
-          <input type="password" id="smb_password" name="smb_password" autocomplete="new-password">
-          <div class="hint">Type it plainly — special characters are escaped for you.</div>
+        <div class="grid c2" style="margin-bottom:12px">
+          <div>
+            <label for="smb_password">Share password <span class="hint" style="display:inline">— SMB only</span></label>
+            <input type="password" id="smb_password" name="smb_password" autocomplete="new-password">
+            <div class="hint">Type it plainly — special characters are escaped for you.</div>
+          </div>
+          <div></div>
         </div>
       </div>
 
@@ -79,6 +98,26 @@ const statusEl = document.getElementById('browse-status');
 const results = document.getElementById('browse-results');
 const folderField = document.getElementById('source_folder');
 const nameField = document.getElementById('target_name');
+const knownSel = document.getElementById('known_id');
+const manualBlock = document.getElementById('manual-block');
+const savedNote = document.getElementById('saved-note');
+
+// Toggle between a saved location (credentials reused server-side) and manual entry.
+function syncSource() {
+  const opt = knownSel.options[knownSel.selectedIndex];
+  results.innerHTML = ''; folderField.value = ''; statusEl.textContent = '';
+  if (knownSel.value) {
+    manualBlock.style.display = 'none';
+    savedNote.style.display = '';
+    savedNote.textContent = 'Using saved credentials for ' + opt.dataset.base +
+                            ' (as ' + opt.dataset.user + ').';
+  } else {
+    manualBlock.style.display = '';
+    savedNote.style.display = 'none';
+  }
+}
+knownSel.addEventListener('change', syncSource);
+syncSource();
 
 function deriveName(folder) {
   const m = folder.match(/^(.*)_\d{8}-\d{6}$/);
@@ -90,6 +129,7 @@ btn.addEventListener('click', async () => {
   folderField.value = '';
   statusEl.textContent = 'Listing…';
   const body = new URLSearchParams({
+    known_id: knownSel.value,
     source_uri: document.getElementById('source_uri').value,
     smb_user: document.getElementById('smb_user').value,
     smb_password: document.getElementById('smb_password').value,

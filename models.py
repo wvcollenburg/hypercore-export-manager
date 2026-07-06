@@ -181,6 +181,21 @@ def get_schedule(schedule_id):
             "WHERE s.id = ?", (schedule_id,)).fetchone()
 
 
+def get_known_smb_locations():
+    """Distinct SMB export destinations (base + user) already saved on
+    schedules, so imports can reuse them instead of re-entering credentials.
+
+    ref_id points at a schedule holding the stored password for that location;
+    thanks to SQLite's MAX() bare-column rule it's the newest matching row."""
+    with db() as conn:
+        return conn.execute(
+            "SELECT path_uri_base, smb_user, MAX(id) AS ref_id "
+            "FROM schedules "
+            "WHERE path_uri_base LIKE 'smb://%' AND smb_user IS NOT NULL "
+            "GROUP BY path_uri_base, smb_user "
+            "ORDER BY path_uri_base").fetchall()
+
+
 def toggle_schedule(schedule_id):
     with db() as conn:
         conn.execute("UPDATE schedules SET enabled = 1 - enabled WHERE id = ?",
