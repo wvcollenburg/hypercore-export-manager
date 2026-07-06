@@ -1,0 +1,21 @@
+services:
+  hcem:
+    build: .
+    container_name: hypercore-export-manager
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # REQUIRED: any long random string; encrypts stored cluster passwords.
+      # Generate one with:  openssl rand -hex 32
+      HCEM_SECRET: "change-me"
+      # Schedules run in this timezone.
+      TZ: "Europe/Amsterdam"
+    volumes:
+      - hcem-data:/data
+      # Mount the same NAS share HyperCore exports to, so the app can
+      # prune old copies. Mount it on the HOST first (fstab/systemd),
+      # then bind it here. Example:
+      # - /mnt/nas/hypercore:/mnt/nas/hypercore
+volumes:
+  hcem-data:

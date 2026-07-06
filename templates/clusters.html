@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Clusters · HyperCore Export Manager{% endblock %}
+{% block content %}
+<h2>Clusters</h2>
+<p class="sub">Registered HyperCore systems this tool can export from.</p>
+
+<div class="card">
+  {% if clusters %}
+  <table>
+    <tr><th>Name</th><th>Host</th><th>API user</th><th>TLS check</th><th></th></tr>
+    {% for c in clusters %}
+    <tr>
+      <td><strong>{{ c.name }}</strong></td>
+      <td class="mono">{{ c.host }}</td>
+      <td class="mono">{{ c.username }}</td>
+      <td>{% if c.verify_tls %}<span class="badge on">verified</span>
+          {% else %}<span class="badge off">skipped</span>{% endif %}</td>
+      <td style="text-align:right; white-space:nowrap">
+        <a class="btn" href="{{ url_for('vms', cluster_id=c.id) }}">Browse VMs</a>
+        <form class="inline" method="post" action="{{ url_for('clusters_delete', cluster_id=c.id) }}"
+              onsubmit="return confirm('Remove cluster {{ c.name }} and all of its export schedules?')">
+          <button class="danger">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">
+    No clusters registered yet.
+    <span class="mono">Add the first one below to start browsing VMs.</span>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <details class="addform" {% if not clusters %}open{% endif %}>
+    <summary>Register a cluster</summary>
+    <div class="pad">
+      <form method="post" action="{{ url_for('clusters_add') }}">
+        <div class="grid c2">
+          <div>
+            <label for="name">Display name</label>
+            <input type="text" id="name" name="name" placeholder="Production cluster" required>
+          </div>
+          <div>
+            <label for="host">Host or IP</label>
+            <input type="text" id="host" name="host" class="mono-in" placeholder="hypercore.customer.local" required>
+            <div class="hint">The address you use for the HyperCore UI, without https://</div>
+          </div>
+          <div>
+            <label for="username">API user</label>
+            <input type="text" id="username" name="username" class="mono-in" required>
+            <div class="hint">A dedicated read + VM-export user is enough; avoid admin.</div>
+          </div>
+          <div>
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required>
+            <div class="hint">Stored encrypted with the HCEM_SECRET key.</div>
+          </div>
+        </div>
+        <div style="margin-top:14px" class="check">
+          <input type="checkbox" id="verify_tls" name="verify_tls" checked>
+          <label for="verify_tls" style="margin:0">Verify the cluster's TLS certificate</label>
+        </div>
+        <div class="hint" style="margin-bottom:14px">Uncheck only for self-signed certificates on a trusted network.</div>
+        <button class="primary">Register cluster</button>
+      </form>
+    </div>
+  </details>
+</div>
+{% endblock %}

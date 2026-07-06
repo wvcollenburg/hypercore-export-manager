@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{{ cluster.name }} VMs · HyperCore Export Manager{% endblock %}
+{% block content %}
+<h2>{{ cluster.name }}</h2>
+<p class="sub">Virtual machines on <span class="mono">{{ cluster.host }}</span> — attach a daily export to any of them.</p>
+
+{% if error %}
+<div class="flash error">Could not read the VM list: {{ error }}</div>
+{% endif %}
+
+<div class="card">
+  {% if vms %}
+  <table>
+    <tr><th>VM</th><th>State</th><th>vCPU</th><th>Memory</th><th>Export</th></tr>
+    {% for vm in vms %}
+    <tr>
+      <td>
+        <strong>{{ vm.name }}</strong>
+        {% if vm.description %}<div class="hint">{{ vm.description }}</div>{% endif %}
+        <div class="mono" style="color:var(--muted); font-size:11px">{{ vm.uuid }}</div>
+      </td>
+      <td>
+        {% if vm.state == 'RUNNING' %}<span class="badge on">running</span>
+        {% elif vm.state == 'SHUTOFF' %}<span class="badge off">off</span>
+        {% else %}<span class="badge off">{{ vm.state|lower }}</span>{% endif %}
+      </td>
+      <td>{{ vm.numVCPU }}</td>
+      <td>{{ vm.mem | gib }}</td>
+      <td style="white-space:nowrap">
+        {% if vm.uuid in scheduled %}
+          <span class="badge run">daily at {{ scheduled[vm.uuid].run_time }}</span>
+        {% else %}
+          <button type="button" onclick="openForm('{{ vm.uuid }}')">Schedule export</button>
+        {% endif %}
+      </td>
+    </tr>
+    <tr id="form-{{ vm.uuid }}" hidden>
+      <td colspan="5" style="background:#f4f6f8">
+        <form method="post" action="{{ url_for('schedules_add') }}">
+          <input type="hidden" name="cluster_id" value="{{ cluster.id }}">
+          <input type="hidden" name="vm_uuid" value="{{ vm.uuid }}">
+          <input type="hidden" name="vm_name" value="{{ vm.name }}">
+          <div class="grid c2" style="margin-bottom:12px">
+            <div>
+              <label>Export destination (NAS URI)</label>
+              <input type="text" name="path_uri_base" class="mono-in" required
+                     placeholder="smb://user:password@nas.local/backups/hypercore">
+              <div class="hint">SMB or NFS URI. Each run creates
+                <span class="mono">{{ safe_name(vm.name) }}_YYYYMMDD-HHMMSS/</span> inside it.</div>
+            </div>
+            <div>
+              <label>Retention prune path (mount inside this container)</label>
+              <input type="text" name="prune_path" class="mono-in"
+                     placeholder="/mnt/nas/hypercore">
+              <div class="hint">Same folder as above, reached via a local mount.
+                Leave empty to skip automatic pruning.</div>
+            </div>
+          </div>
+          <div class="grid c4" style="margin-bottom:12px">
+            <div class="check" style="align-self:end; padding-bottom:8px">
+              <input type="checkbox" id="cmp-{{ vm.uuid }}" name="compress">
+              <label for="cmp-{{ vm.uuid }}" style="margin:0">Compress images</label>
+            </div>
+            <div>
+              <label>Copies to keep</label>
+              <input type="number" name="retention" value="7" min="1" max="60">
+            </div>
+            <div>
+              <label>Daily at</label>
+              <input type="time" name="run_time" value="03:00" required>
+            </div>
+            <div style="align-self:end">
+              <button class="primary" style="width:100%">Create schedule</button>
+            </div>
+          </div>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}{% if not error %}
+  <div class="empty">This cluster reports no virtual machines.</div>
+  {% endif %}{% endif %}
+</div>
+
+<script>
+function openForm(uuid) {
+  const row = document.getElementById('form-' + uuid);
+  row.hidden = !row.hidden;
+  if (!row.hidden) row.querySelector('input[name=path_uri_base]').focus();
+}
+</script>
+{% endblock %}

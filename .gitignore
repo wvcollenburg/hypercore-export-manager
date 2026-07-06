@@ -1,0 +1,59 @@
+# ─── macOS ───────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+.TemporaryItems
+.AppleDouble
+.LSOverride
+.VolumeIcon.icns
+.DocumentRevisions-V100
+Icon?
+._.DS_Store
+
+# ─── Claude Code / Claude ────────────────────────────────
+.claude/
+CLAUDE.local.md
+.claude-code/
+.anthropic/
+
+# ─── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+ENV/
+
+# ─── HyperCore Export Manager (app-specific) ─────────────
+# SQLite database (default /data/hcem.db, or wherever HCEM_DB points)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+/data/
+
+# Secrets / local env — HCEM_SECRET, cluster passwords, etc.
+.env
+.env.*
+*.local
+
+# ─── Editors / IDEs ──────────────────────────────────────
+.idea/
+*.swp
+*.swo
+*~

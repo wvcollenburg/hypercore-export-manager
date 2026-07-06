@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Runs · HyperCore Export Manager{% endblock %}
+{% block content %}
+<h2>Export runs{% if schedule %} — {{ schedule.vm_name }}{% endif %}</h2>
+<p class="sub">
+  {% if schedule %}History for this schedule. <a href="{{ url_for('runs') }}">Show all runs</a>
+  {% else %}The most recent export runs across all schedules.{% endif %}
+</p>
+
+<div class="card">
+  {% if runs %}
+  <table>
+    <tr><th>Started</th><th>VM / cluster</th><th>Folder</th><th>Status</th><th>Detail</th></tr>
+    {% for r in runs %}
+    <tr>
+      <td class="mono">{{ r.started_at }}</td>
+      <td><strong>{{ r.vm_name }}</strong><div class="hint">{{ r.cluster_name }}</div></td>
+      <td class="mono">{{ r.export_path or '—' }}</td>
+      <td>
+        {% if r.status == 'COMPLETE' %}<span class="badge on">complete</span>
+        {% elif r.status == 'ERROR' %}<span class="badge err">error</span>
+        {% else %}<span class="badge run">running</span>{% endif %}
+      </td>
+      <td style="max-width:340px">{{ r.message or '' }}
+        {% if r.task_tag %}<div class="hint mono">task {{ r.task_tag }}</div>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">No runs recorded yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

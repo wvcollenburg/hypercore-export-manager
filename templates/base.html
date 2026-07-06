@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}HyperCore Export Manager{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink:      #16232e;
+  --muted:    #5c6b78;
+  --surface:  #fafbfc;
+  --card:     #ffffff;
+  --line:     #dce3e8;
+  --accent:   #0e7c86;
+  --accent-d: #0a5b63;
+  --ok:       #1a7f4b;
+  --warn:     #a86a00;
+  --err:      #b3362c;
+  --slot:     #0e7c86;
+  --slot-off: #dce3e8;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--surface); color: var(--ink);
+  font: 15px/1.5 "IBM Plex Sans", sans-serif;
+}
+.mono { font-family: "IBM Plex Mono", monospace; font-size: .87em; }
+
+header {
+  background: var(--ink); color: #fff;
+  padding: 0 24px; display: flex; align-items: center; gap: 32px;
+}
+header h1 { font-size: 15px; font-weight: 600; letter-spacing: .02em; margin: 0; padding: 14px 0; }
+header h1 span { color: #7fd4dc; }
+nav { display: flex; gap: 4px; }
+nav a {
+  color: #b9c4cd; text-decoration: none; padding: 14px 12px;
+  font-size: 14px; font-weight: 500; border-bottom: 2px solid transparent;
+}
+nav a:hover { color: #fff; }
+nav a.active { color: #fff; border-bottom-color: var(--accent); }
+
+main { max-width: 1080px; margin: 32px auto; padding: 0 24px; }
+h2 { font-size: 19px; font-weight: 600; margin: 0 0 4px; }
+.sub { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+
+.card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px; margin-bottom: 24px; overflow: hidden;
+}
+.card .pad { padding: 20px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th {
+  text-align: left; font-size: 12px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .05em;
+  padding: 10px 16px; border-bottom: 1px solid var(--line); background: #f4f6f8;
+}
+td { padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 500;
+}
+.badge.on   { background: #e3f2ec; color: var(--ok); }
+.badge.off  { background: #edf0f2; color: var(--muted); }
+.badge.err  { background: #fbe9e7; color: var(--err); }
+.badge.run  { background: #e5f3f4; color: var(--accent-d); }
+
+/* Retention slots: filled = copies on the NAS, outline = free slots */
+.slots { display: inline-flex; gap: 3px; vertical-align: middle; }
+.slots i {
+  width: 8px; height: 16px; border-radius: 2px;
+  background: var(--slot-off); display: block;
+}
+.slots i.f { background: var(--slot); }
+
+form.inline { display: inline; }
+button, .btn {
+  font: 500 13px/1 "IBM Plex Sans", sans-serif;
+  padding: 8px 14px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--line); background: #fff; color: var(--ink);
+  text-decoration: none; display: inline-block;
+}
+button:hover, .btn:hover { border-color: var(--accent); color: var(--accent-d); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { background: var(--accent-d); color: #fff; }
+button.danger:hover { border-color: var(--err); color: var(--err); }
+button:focus-visible, .btn:focus-visible, input:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+
+label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+input[type=text], input[type=password], input[type=time], input[type=number] {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: 6px; font: 14px "IBM Plex Sans", sans-serif; background: #fff;
+}
+input.mono-in { font-family: "IBM Plex Mono", monospace; font-size: 13px; }
+.grid { display: grid; gap: 14px; }
+.grid.c2 { grid-template-columns: 1fr 1fr; }
+.grid.c4 { grid-template-columns: 2fr 1fr 1fr 1fr; }
+.hint { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+
+.flash { padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 14px; }
+.flash.ok   { background: #e3f2ec; color: var(--ok); }
+.flash.warn { background: #fdf3e3; color: var(--warn); }
+.flash.error{ background: #fbe9e7; color: var(--err); }
+
+.empty { padding: 40px 20px; text-align: center; color: var(--muted); }
+.empty .mono { display: block; margin-top: 8px; font-size: 13px; }
+
+details.addform summary {
+  cursor: pointer; font-weight: 500; font-size: 14px; color: var(--accent-d);
+  padding: 14px 20px; list-style: none;
+}
+details.addform summary::before { content: "+ "; }
+details.addform[open] summary::before { content: "− "; }
+details.addform .pad { border-top: 1px solid var(--line); }
+
+@media (max-width: 720px) {
+  .grid.c2, .grid.c4 { grid-template-columns: 1fr; }
+  header { flex-wrap: wrap; gap: 0 16px; }
+  main { margin-top: 20px; }
+  td, th { padding: 10px 10px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .flash { animation: slide .25s ease-out; }
+  @keyframes slide { from { opacity: 0; transform: translateY(-4px); } }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>SC<span>//</span>Export Manager</h1>
+  <nav>
+    <a href="{{ url_for('schedules') }}" class="{{ 'active' if request.endpoint == 'schedules' }}">Schedules</a>
+    <a href="{{ url_for('clusters') }}" class="{{ 'active' if request.endpoint in ('clusters', 'vms') }}">Clusters</a>
+    <a href="{{ url_for('runs') }}" class="{{ 'active' if request.endpoint == 'runs' }}">Runs</a>
+  </nav>
+</header>
+<main>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

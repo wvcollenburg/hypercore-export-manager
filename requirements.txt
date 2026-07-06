@@ -1,0 +1,5 @@
+flask>=3.0
+requests>=2.31
+apscheduler>=3.10,<4
+cryptography>=42
+gunicorn>=21

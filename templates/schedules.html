@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Schedules · HyperCore Export Manager{% endblock %}
+{% block content %}
+<h2>Export schedules</h2>
+<p class="sub">Every enabled schedule exports its VM once a day to a timestamped folder and prunes copies beyond the retention count.</p>
+
+<div class="card">
+  {% if rows %}
+  <table>
+    <tr><th>VM / cluster</th><th>Destination</th><th>Retention</th><th>Daily at</th><th>Last run</th><th>Next run</th><th></th></tr>
+    {% for r in rows %}
+    <tr>
+      <td>
+        <strong>{{ r.s.vm_name }}</strong>
+        <div class="hint">{{ r.s.cluster_name }}</div>
+      </td>
+      <td class="mono" style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap"
+          title="{{ r.s.path_uri_base }}">{{ r.s.path_uri_base }}</td>
+      <td>
+        <span class="slots" title="{{ r.s.retention }} copies kept">
+          {% for i in range([r.s.retention, 14] | min) %}<i class="f"></i>{% endfor %}
+        </span>
+        <span class="hint" style="display:inline">×{{ r.s.retention }}</span>
+      </td>
+      <td class="mono">{{ r.s.run_time }}</td>
+      <td>
+        {% if r.last %}
+          {% if r.last.status == 'COMPLETE' %}<span class="badge on">ok</span>
+          {% elif r.last.status == 'ERROR' %}<span class="badge err">failed</span>
+          {% else %}<span class="badge run">{{ r.last.message or 'running' }}</span>{% endif %}
+          <div class="hint mono">{{ r.last.started_at }}</div>
+        {% else %}<span class="hint">never</span>{% endif %}
+      </td>
+      <td class="mono">{{ r.next or '—' }}</td>
+      <td style="text-align:right; white-space:nowrap">
+        <form class="inline" method="post" action="{{ url_for('schedules_run', schedule_id=r.s.id) }}">
+          <button {% if not r.s.enabled %}disabled{% endif %}>Run now</button>
+        </form>
+        <form class="inline" method="post" action="{{ url_for('schedules_toggle', schedule_id=r.s.id) }}">
+          <button>{{ 'Pause' if r.s.enabled else 'Resume' }}</button>
+        </form>
+        <a class="btn" href="{{ url_for('runs', schedule_id=r.s.id) }}">History</a>
+        <form class="inline" method="post" action="{{ url_for('schedules_delete', schedule_id=r.s.id) }}"
+              onsubmit="return confirm('Remove this schedule? Exports already on the NAS stay in place.')">
+          <button class="danger">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">
+    No export schedules yet.
+    <span class="mono">Clusters → Browse VMs → Schedule export</span>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
