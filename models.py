@@ -216,11 +216,30 @@ def get_runs(schedule_id=None, limit=50):
         return conn.execute(q + "ORDER BY r.id DESC LIMIT ?", (limit,)).fetchall()
 
 
+def get_run(run_id):
+    with db() as conn:
+        return conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+
+
 def last_run_for(schedule_id):
     with db() as conn:
         return conn.execute(
             "SELECT * FROM runs WHERE schedule_id = ? ORDER BY id DESC LIMIT 1",
             (schedule_id,)).fetchone()
+
+
+def get_active_runs():
+    """Runs still marked RUNNING -- used on startup to recover ones whose
+    monitoring thread died when the process restarted."""
+    with db() as conn:
+        return conn.execute(
+            "SELECT * FROM runs WHERE status = 'RUNNING' ORDER BY id").fetchall()
+
+
+def get_active_imports():
+    with db() as conn:
+        return conn.execute(
+            "SELECT * FROM imports WHERE status = 'RUNNING' ORDER BY id").fetchall()
 
 
 def is_run_active(schedule_id) -> bool:

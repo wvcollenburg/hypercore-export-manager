@@ -65,9 +65,40 @@ def run_import(import_id: int):
                        id=f"import-{import_id}", replace_existing=True)
 
 
+def reconcile_interrupted():
+    """Recover tasks left RUNNING by a restart mid-job.
+
+    Their in-process monitoring thread died with the old process, but the
+    HyperCore task kept going. For each, re-attach monitoring by taskTag (in
+    the thread pool). Rows with no taskTag never got far enough to recover, so
+    mark them ERROR rather than leaving them stuck forever."""
+    import importer
+
+    for r in models.get_active_runs():
+        if r["task_tag"]:
+            _scheduler.add_job(exporter.resume_export, args=[r["id"]],
+                               id=f"resume-run-{r['id']}", replace_existing=True)
+            log.info("Resuming interrupted export run %s (task %s)", r["id"], r["task_tag"])
+        else:
+            models.update_run(r["id"], status="ERROR",
+                              message="Interrupted by a restart before the export task started.")
+            log.warning("Run %s marked ERROR: interrupted before a task tag was recorded", r["id"])
+
+    for i in models.get_active_imports():
+        if i["task_tag"]:
+            _scheduler.add_job(importer.resume_import, args=[i["id"]],
+                               id=f"resume-import-{i['id']}", replace_existing=True)
+            log.info("Resuming interrupted import %s (task %s)", i["id"], i["task_tag"])
+        else:
+            models.update_import(i["id"], status="ERROR",
+                                 message="Interrupted by a restart before the import task started.")
+            log.warning("Import %s marked ERROR: interrupted before a task tag was recorded", i["id"])
+
+
 def start():
     _scheduler.start()
     sync_jobs()
+    reconcile_interrupted()
 
 
 def next_run_time(schedule_id: int):

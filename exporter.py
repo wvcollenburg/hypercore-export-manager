@@ -139,6 +139,56 @@ def _wait_for_task(hc: HyperCoreClient, task_tag: str, run_id: int):
                   lambda state, pct: models.update_run(run_id, message=f"{state} {pct}%"))
 
 
+def resume_export(run_id: int):
+    """Re-attach to an export whose monitoring thread died on a restart.
+
+    The HyperCore task keeps running on the cluster independently of this app,
+    so we poll its taskTag to completion and finish the tail (prune + mark
+    complete). Never raises."""
+    run = models.get_run(run_id)
+    if run is None or run["status"] != "RUNNING":
+        return
+    sched = models.get_schedule(run["schedule_id"])
+    if sched is None:
+        models.update_run(run_id, status="ERROR", finished_at=_now(),
+                          message="Interrupted by a restart; schedule no longer exists.")
+        return
+    cluster = models.get_cluster(sched["cluster_id"])
+    try:
+        hc = client_for(cluster)
+        state = hc.task_status(run["task_tag"]).get("state", "UNINITIALIZED")
+        if state == "ERROR":
+            models.update_run(run_id, status="ERROR", finished_at=_now(),
+                              message="Export task reported ERROR (detected after restart).")
+            return
+        if state == "UNINITIALIZED":
+            # The task is gone: it finished and aged out before we re-attached.
+            # An export can't be verified from the taskTag alone, so finalize as
+            # complete-with-caveat and still attempt the retention prune.
+            prune_msg = prune_old_exports(sched)
+            models.update_run(run_id, status="COMPLETE", finished_at=_now(),
+                              message="Resumed after restart; the cluster no longer tracks "
+                                      "the task -- assumed complete, verify the export on the "
+                                      f"NAS. {prune_msg}")
+            return
+        if state in ("QUEUED", "RUNNING"):
+            wait_for_task(hc, run["task_tag"],
+                          lambda s, p: models.update_run(run_id, message=f"{s} {p}%"))
+        # COMPLETE (or wait finished) -> fall through to prune + mark complete
+    except HyperCoreError as e:
+        models.update_run(run_id, status="ERROR", message=str(e), finished_at=_now())
+        return
+    except Exception as e:  # never let recovery crash the scheduler thread
+        models.update_run(run_id, status="ERROR", message=f"Unexpected error: {e}",
+                          finished_at=_now())
+        log.exception("[%s] Resume error", run_id)
+        return
+
+    prune_msg = prune_old_exports(sched)
+    models.update_run(run_id, status="COMPLETE", finished_at=_now(),
+                      message=f"Export complete (resumed after restart). {prune_msg}")
+
+
 def smb_list_dirs(base_uri: str, user: str, password: str | None) -> list[str]:
     """List subdirectory names of an SMB path, newest-name first.
 

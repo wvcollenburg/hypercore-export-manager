@@ -55,3 +55,56 @@ def run_import(import_id: int):
     models.update_import(import_id, status="COMPLETE", finished_at=exporter._now(),
                          message="Import complete.")
     log.info("[import %s] Done. New VM UUID: %s", import_id, imp["target_name"] or "(kept)")
+
+
+def resume_import(import_id: int):
+    """Re-attach to an import whose monitoring thread died on a restart.
+
+    If the taskTag is gone, we can confirm the outcome directly: the import
+    recorded the new VM's UUID, so we just check whether that VM exists on the
+    target cluster. Never raises."""
+    imp = models.get_import(import_id)
+    if imp is None or imp["status"] != "RUNNING":
+        return
+    cluster = models.get_cluster(imp["cluster_id"])
+    if cluster is None:
+        models.update_import(import_id, status="ERROR", finished_at=exporter._now(),
+                             message="Interrupted by a restart; target cluster no longer exists.")
+        return
+    try:
+        hc = exporter.client_for(cluster)
+        state = hc.task_status(imp["task_tag"]).get("state", "UNINITIALIZED")
+        if state == "ERROR":
+            models.update_import(import_id, status="ERROR", finished_at=exporter._now(),
+                                 message="Import task reported ERROR (detected after restart).")
+            return
+        if state == "UNINITIALIZED":
+            # Task gone -> verify by the presence of the VM the import created.
+            created = imp["created_uuid"]
+            exists = bool(created) and any(v["uuid"] == created for v in hc.list_vms())
+            if exists:
+                models.update_import(import_id, status="COMPLETE", finished_at=exporter._now(),
+                                     message="Import complete (confirmed by VM presence after restart).")
+            else:
+                models.update_import(import_id, status="ERROR", finished_at=exporter._now(),
+                                     message="Could not confirm import after restart: the task is "
+                                             "no longer tracked and the new VM was not found. "
+                                             "Verify on the cluster and re-run if needed.")
+            return
+        if state in ("QUEUED", "RUNNING"):
+            exporter.wait_for_task(
+                hc, imp["task_tag"],
+                lambda s, p: models.update_import(import_id, message=f"{s} {p}%"))
+        # COMPLETE (or wait finished) -> fall through to mark complete
+    except HyperCoreError as e:
+        models.update_import(import_id, status="ERROR", message=str(e),
+                             finished_at=exporter._now())
+        return
+    except Exception as e:  # never let recovery crash the scheduler thread
+        models.update_import(import_id, status="ERROR",
+                             message=f"Unexpected error: {e}", finished_at=exporter._now())
+        log.exception("[import %s] Resume error", import_id)
+        return
+
+    models.update_import(import_id, status="COMPLETE", finished_at=exporter._now(),
+                         message="Import complete (resumed after restart).")
