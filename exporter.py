@@ -189,6 +189,20 @@ def resume_export(run_id: int):
                       message=f"Export complete (resumed after restart). {prune_msg}")
 
 
+def _smb_username(user: str | None) -> str:
+    """Normalize a share username for the smbprotocol client.
+
+    smbprotocol only understands DOMAIN\\user (backslash) or user@domain, but
+    HyperCore accepts DOMAIN/user (forward slash) and users often save it that
+    way -- so exports work while our direct SMB browse/prune fails auth with
+    STATUS_LOGON_FAILURE. Convert a lone forward slash to a backslash.
+    """
+    user = (user or "").strip()
+    if "\\" not in user and "@" not in user and "/" in user:
+        user = user.replace("/", "\\", 1)
+    return user
+
+
 def smb_list_dirs(base_uri: str, user: str, password: str | None) -> list[str]:
     """List subdirectory names of an SMB path, newest-name first.
 
@@ -204,7 +218,7 @@ def smb_list_dirs(base_uri: str, user: str, password: str | None) -> list[str]:
     if not server or not segments:
         raise HyperCoreError(f"'{base_uri}' is not a valid SMB share path.")
     unc = "\\\\" + server + "\\" + "\\".join(segments)
-    conn = {"username": user, "password": password, "port": port}
+    conn = {"username": _smb_username(user), "password": password, "port": port}
     try:
         names = [e.name for e in smbclient.scandir(unc, **conn) if e.is_dir()]
     except Exception as e:  # noqa: BLE001 -- turn any SMB error into a UI message
@@ -286,7 +300,7 @@ def _prune_via_smb(sched) -> str:
 
     password = (models.decrypt_password(sched["smb_pass_enc"])
                 if sched["smb_pass_enc"] else None)
-    conn = {"username": sched["smb_user"], "password": password, "port": port}
+    conn = {"username": _smb_username(sched["smb_user"]), "password": password, "port": port}
 
     try:
         names = [e.name for e in smbclient.scandir(unc_base, **conn) if e.is_dir()]
