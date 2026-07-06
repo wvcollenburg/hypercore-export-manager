@@ -7,7 +7,7 @@ import os
 import re
 
 from flask import (Flask, flash, jsonify, redirect, render_template, request,
-                   url_for)
+                   session, url_for)
 
 import models
 import scheduler
@@ -22,9 +22,83 @@ log = logging.getLogger("hcem")
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("HCEM_SECRET", "dev-only")
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
 
 models.init_db()
 scheduler.start()
+
+
+# --------------------------------------------------------------- authentication
+# Endpoints reachable without a session. Everything else requires login.
+_PUBLIC_ENDPOINTS = {"login", "static"}
+
+
+@app.before_request
+def require_login():
+    if request.endpoint in _PUBLIC_ENDPOINTS:
+        return
+    if not session.get("authenticated"):
+        return redirect(url_for("login", next=request.path))
+    # First login on the default password: pin the user to the change form.
+    if session.get("must_change") and request.endpoint not in ("account_password", "logout"):
+        return redirect(url_for("account_password"))
+
+
+def _safe_next(target):
+    """Only allow same-site relative redirects (guards against open redirect)."""
+    if target and target.startswith("/") and not target.startswith("//"):
+        return target
+    return url_for("index")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if session.get("authenticated"):
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        if models.check_credentials(request.form.get("username", "").strip(),
+                                    request.form.get("password", "")):
+            row = models.get_auth()
+            session.clear()
+            session["authenticated"] = True
+            session["username"] = row["username"]
+            session["must_change"] = bool(row["must_change"])
+            if session["must_change"]:
+                flash("Welcome. Set a new password before continuing.", "warn")
+                return redirect(url_for("account_password"))
+            return redirect(_safe_next(request.args.get("next")))
+        flash("Invalid username or password.", "error")
+    return render_template("login.html")
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    flash("Signed out.", "ok")
+    return redirect(url_for("login"))
+
+
+@app.route("/account/password", methods=["GET", "POST"])
+def account_password():
+    must_change = bool(session.get("must_change"))
+    if request.method == "POST":
+        current = request.form.get("current", "")
+        new = request.form.get("new", "")
+        confirm = request.form.get("confirm", "")
+        if not models.check_credentials(session.get("username", "admin"), current):
+            flash("Current password is incorrect.", "error")
+        elif len(new) < 8:
+            flash("New password must be at least 8 characters.", "error")
+        elif new != confirm:
+            flash("New password and confirmation do not match.", "error")
+        elif new == "admin":
+            flash("Choose a password other than the default.", "error")
+        else:
+            models.set_admin_password(new)
+            session["must_change"] = False
+            flash("Password updated.", "ok")
+            return redirect(url_for("index"))
+    return render_template("account.html", must_change=must_change)
 
 
 # ------------------------------------------------------------------ dashboard

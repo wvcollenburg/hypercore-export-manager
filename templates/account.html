@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Change password · HyperCore Export Manager{% endblock %}
+{% block content %}
+<div class="card" style="max-width:420px; margin:40px auto">
+  <div class="pad">
+    <h2>{% if must_change %}Set a new password{% else %}Change password{% endif %}</h2>
+    <p class="sub" style="margin-bottom:18px">
+      {% if must_change %}You're signed in with the default password. Choose a new one to continue.
+      {% else %}Update the admin password for this manager.{% endif %}
+    </p>
+    <form method="post" action="{{ url_for('account_password') }}">
+      <div style="margin-bottom:12px">
+        <label for="current">Current password</label>
+        <input type="password" id="current" name="current" autocomplete="current-password" autofocus required>
+      </div>
+      <div style="margin-bottom:12px">
+        <label for="new">New password</label>
+        <input type="password" id="new" name="new" autocomplete="new-password" required>
+        <div class="hint">At least 8 characters, and not the default.</div>
+      </div>
+      <div style="margin-bottom:16px">
+        <label for="confirm">Confirm new password</label>
+        <input type="password" id="confirm" name="confirm" autocomplete="new-password" required>
+      </div>
+      <button class="primary" style="width:100%">Update password</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

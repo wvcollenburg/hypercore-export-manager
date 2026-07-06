@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Sign in · HyperCore Export Manager{% endblock %}
+{% block content %}
+<div class="card" style="max-width:380px; margin:40px auto">
+  <div class="pad">
+    <h2>Sign in</h2>
+    <p class="sub" style="margin-bottom:18px">Enter the manager's admin credentials.</p>
+    <form method="post" action="{{ url_for('login') }}{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}">
+      <div style="margin-bottom:12px">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" value="admin" autocomplete="username" autofocus required>
+      </div>
+      <div style="margin-bottom:16px">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <button class="primary" style="width:100%">Sign in</button>
+    </form>
+    <div class="hint" style="margin-top:14px">First run? The default is
+      <span class="mono">admin</span> / <span class="mono">admin</span> — you'll be asked to
+      change it immediately.</div>
+  </div>
+</div>
+{% endblock %}

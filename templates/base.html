@@ -137,12 +137,21 @@ details.addform .pad { border-top: 1px solid var(--line); }
 <body>
 <header>
   <h1>SC<span>//</span>Export Manager</h1>
+  {% if session.authenticated %}
   <nav>
     <a href="{{ url_for('schedules') }}" class="{{ 'active' if request.endpoint == 'schedules' }}">Schedules</a>
     <a href="{{ url_for('clusters') }}" class="{{ 'active' if request.endpoint in ('clusters', 'vms') }}">Clusters</a>
     <a href="{{ url_for('imports') }}" class="{{ 'active' if request.endpoint == 'imports' }}">Import</a>
     <a href="{{ url_for('runs') }}" class="{{ 'active' if request.endpoint == 'runs' }}">Runs</a>
   </nav>
+  <div style="margin-left:auto; display:flex; align-items:center; gap:14px">
+    <a href="{{ url_for('account_password') }}" class="{{ 'active' if request.endpoint == 'account_password' }}"
+       style="color:#b9c4cd; text-decoration:none; font-size:13px">{{ session.username }}</a>
+    <form method="post" action="{{ url_for('logout') }}" style="margin:0">
+      <button style="padding:6px 12px; font-size:12px">Log out</button>
+    </form>
+  </div>
+  {% endif %}
 </header>
 <main>
   {% with messages = get_flashed_messages(with_categories=true) %}

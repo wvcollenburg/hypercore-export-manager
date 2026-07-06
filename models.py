@@ -8,6 +8,7 @@ import sqlite3
 from contextlib import contextmanager
 
 from cryptography.fernet import Fernet
+from werkzeug.security import check_password_hash, generate_password_hash
 
 DB_PATH = os.environ.get("HCEM_DB", "/data/hcem.db")
 
@@ -48,6 +49,14 @@ CREATE TABLE IF NOT EXISTS runs (
     task_tag    TEXT,
     export_path TEXT,
     message     TEXT
+);
+
+CREATE TABLE IF NOT EXISTS auth (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),   -- single admin row
+    username      TEXT NOT NULL DEFAULT 'admin',
+    password_hash TEXT NOT NULL,
+    must_change   INTEGER NOT NULL DEFAULT 1,           -- force rotation off the default
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS imports (
@@ -105,6 +114,7 @@ def init_db():
     with db() as conn:
         conn.executescript(SCHEMA)
         _migrate(conn)
+    ensure_admin()
 
 
 def _migrate(conn):
@@ -118,6 +128,42 @@ def _migrate(conn):
         conn.execute("ALTER TABLE schedules ADD COLUMN smb_user TEXT")
     if "smb_pass_enc" not in cols:
         conn.execute("ALTER TABLE schedules ADD COLUMN smb_pass_enc TEXT")
+
+
+# ----------------------------------------------------------------------- auth
+# pbkdf2:sha256 is used explicitly rather than the Werkzeug default (scrypt),
+# which needs an OpenSSL build not guaranteed on python:alpine.
+_PW_METHOD = "pbkdf2:sha256"
+
+
+def ensure_admin():
+    """Seed the single admin account (admin/admin, must-change) on first run."""
+    with db() as conn:
+        if conn.execute("SELECT 1 FROM auth WHERE id = 1").fetchone() is None:
+            conn.execute(
+                "INSERT INTO auth (id, username, password_hash, must_change) "
+                "VALUES (1, 'admin', ?, 1)",
+                (generate_password_hash("admin", method=_PW_METHOD),))
+
+
+def get_auth():
+    with db() as conn:
+        return conn.execute("SELECT * FROM auth WHERE id = 1").fetchone()
+
+
+def check_credentials(username, password) -> bool:
+    row = get_auth()
+    return bool(row) and username == row["username"] \
+        and check_password_hash(row["password_hash"], password)
+
+
+def set_admin_password(new_password):
+    """Store a new password and clear the must-change flag."""
+    with db() as conn:
+        conn.execute(
+            "UPDATE auth SET password_hash = ?, must_change = 0, "
+            "updated_at = datetime('now') WHERE id = 1",
+            (generate_password_hash(new_password, method=_PW_METHOD),))
 
 
 # ------------------------------------------------------------------- clusters
