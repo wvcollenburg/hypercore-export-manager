@@ -108,8 +108,12 @@ def run_export(schedule_id: int):
     log.info("[%s] Done. %s", run_id, prune_msg)
 
 
-def _wait_for_task(hc: HyperCoreClient, task_tag: str, run_id: int):
-    """Poll TaskTag until COMPLETE, raise on ERROR or timeout."""
+def wait_for_task(hc: HyperCoreClient, task_tag: str, on_progress) -> None:
+    """Poll TaskTag until COMPLETE, raise on ERROR or timeout.
+
+    `on_progress(state, pct)` is called whenever the percentage changes, so
+    both exports and imports can surface progress into their own run rows.
+    """
     deadline = time.monotonic() + EXPORT_TIMEOUT_S
     last_pct = -1
     while time.monotonic() < deadline:
@@ -117,48 +121,136 @@ def _wait_for_task(hc: HyperCoreClient, task_tag: str, run_id: int):
         state = status.get("state", "UNINITIALIZED")
         pct = status.get("progressPercent", 0)
         if pct != last_pct:
-            models.update_run(run_id, message=f"{state} {pct}%")
+            on_progress(state, pct)
             last_pct = pct
         if state == "COMPLETE":
             return
         if state == "ERROR":
             detail = status.get("formattedMessage") or status.get(
                 "formattedDescription") or "task reported ERROR"
-            raise HyperCoreError(f"Export task failed: {detail}")
+            raise HyperCoreError(f"Task failed: {detail}")
         time.sleep(POLL_INTERVAL_S)
-    raise HyperCoreError(f"Export task {task_tag} did not finish within "
+    raise HyperCoreError(f"Task {task_tag} did not finish within "
                          f"{EXPORT_TIMEOUT_S // 3600}h")
+
+
+def _wait_for_task(hc: HyperCoreClient, task_tag: str, run_id: int):
+    wait_for_task(hc, task_tag,
+                  lambda state, pct: models.update_run(run_id, message=f"{state} {pct}%"))
+
+
+def smb_list_dirs(base_uri: str, user: str, password: str | None) -> list[str]:
+    """List subdirectory names of an SMB path, newest-name first.
+
+    Used by the import browser to show which exported VM folders exist on a
+    share. Raises HyperCoreError with a readable message on any SMB failure.
+    """
+    import smbclient
+
+    parts = urlsplit(base_uri)
+    server = parts.hostname
+    port = parts.port or 445
+    segments = [s for s in parts.path.split("/") if s]
+    if not server or not segments:
+        raise HyperCoreError(f"'{base_uri}' is not a valid SMB share path.")
+    unc = "\\\\" + server + "\\" + "\\".join(segments)
+    conn = {"username": user, "password": password, "port": port}
+    try:
+        names = [e.name for e in smbclient.scandir(unc, **conn) if e.is_dir()]
+    except Exception as e:  # noqa: BLE001 -- turn any SMB error into a UI message
+        raise HyperCoreError(f"Could not list {unc}: {e}") from e
+    return sorted(names, reverse=True)
+
+
+def _select_excess(dir_names, vm_name: str, retention: int):
+    """Given the folder names in the export directory, pick which to delete.
+
+    Only names matching this VM's `{safe_name}_YYYYMMDD-HHMMSS` shape are
+    candidates -- sibling VMs' folders are never touched. The timestamp
+    format sorts lexicographically == chronologically, so keeping the last
+    `retention` entries keeps the newest.
+    """
+    prefix = safe_name(vm_name) + "_"
+    pattern = re.compile(re.escape(prefix) + r"\d{8}-\d{6}$")
+    copies = sorted(n for n in dir_names if pattern.match(n))
+    excess = copies[:-retention] if retention > 0 else []
+    kept = min(len(copies), retention)
+    return excess, kept
 
 
 def prune_old_exports(sched) -> str:
     """Delete oldest export folders beyond the retention count.
 
-    Only possible when prune_path is set: a path where the NAS share is
-    mounted inside this container. HyperCore itself cannot delete from the
-    NAS, so without a mount we can only warn.
-    """
-    if not sched["prune_path"]:
-        return "Pruning skipped (no NAS mount path configured)."
+    HyperCore writes exports to the NAS but has no API to delete from it, so
+    the app must reach the files itself. Two ways to do that:
 
+      * SMB destinations -- connect straight to the share with the stored
+        credentials and prune over the protocol. No mount required.
+      * Anything else (NFS), or when a mount is explicitly configured --
+        prune through `prune_path`, a local bind-mount of the same share.
+
+    An explicit `prune_path` always wins, so existing mount-based setups are
+    unchanged.
+    """
+    if sched["prune_path"]:
+        return _prune_via_mount(sched)
+
+    scheme = urlsplit(sched["path_uri_base"]).scheme.lower()
+    if scheme == "smb":
+        if not sched["smb_user"]:
+            return ("Pruning skipped: SMB share has no stored username to "
+                    "authenticate with; add one, or set a NAS mount path.")
+        return _prune_via_smb(sched)
+
+    return "Pruning skipped (no NAS mount path configured)."
+
+
+def _prune_via_mount(sched) -> str:
     base = Path(sched["prune_path"])
     if not base.is_dir():
         return f"Pruning skipped: {base} is not accessible from this container."
 
-    prefix = safe_name(sched["vm_name"]) + "_"
-    pattern = re.compile(re.escape(prefix) + r"\d{8}-\d{6}$")
-    copies = sorted(
-        (d for d in base.iterdir() if d.is_dir() and pattern.match(d.name)),
-        key=lambda d: d.name,  # timestamp format sorts lexicographically
-    )
-    excess = copies[:-sched["retention"]] if sched["retention"] > 0 else []
-    for old in excess:
+    names = [d.name for d in base.iterdir() if d.is_dir()]
+    excess, kept = _select_excess(names, sched["vm_name"], sched["retention"])
+    for name in excess:
         try:
-            shutil.rmtree(old)
-            log.info("Pruned old export %s", old)
+            shutil.rmtree(base / name)
+            log.info("Pruned old export %s", base / name)
         except OSError as e:
-            return f"Pruning error on {old.name}: {e}"
-    kept = min(len(copies), sched["retention"])
+            return f"Pruning error on {name}: {e}"
     return f"Retention: kept {kept}, removed {len(excess)}."
+
+
+def _prune_via_smb(sched) -> str:
+    import smbclient
+    from smbclient import shutil as smb_shutil
+
+    parts = urlsplit(sched["path_uri_base"])
+    server = parts.hostname
+    port = parts.port or 445
+    segments = [s for s in parts.path.split("/") if s]
+    if not server or not segments:
+        return f"Pruning skipped: SMB URI '{sched['path_uri_base']}' has no share component."
+    # \\server\share\sub\dir  (share is the first path segment)
+    unc_base = "\\\\" + server + "\\" + "\\".join(segments)
+
+    password = (models.decrypt_password(sched["smb_pass_enc"])
+                if sched["smb_pass_enc"] else None)
+    conn = {"username": sched["smb_user"], "password": password, "port": port}
+
+    try:
+        names = [e.name for e in smbclient.scandir(unc_base, **conn) if e.is_dir()]
+    except Exception as e:  # noqa: BLE001 -- surface any SMB/connection failure in the run log
+        return f"Pruning skipped: could not list {unc_base} over SMB: {e}"
+
+    excess, kept = _select_excess(names, sched["vm_name"], sched["retention"])
+    for name in excess:
+        try:
+            smb_shutil.rmtree(unc_base + "\\" + name, **conn)
+            log.info("Pruned old export (SMB) %s\\%s", unc_base, name)
+        except Exception as e:  # noqa: BLE001
+            return f"Pruning error over SMB on {name}: {e}"
+    return f"Retention (SMB): kept {kept}, removed {len(excess)}."
 
 
 def _now() -> str:

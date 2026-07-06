@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Import · HyperCore Export Manager{% endblock %}
+{% block content %}
+<h2>Import a VM</h2>
+<p class="sub">Restore an exported VM, or migrate one to another cluster, by importing
+  it from the share. Each import creates a new VM on the target cluster.</p>
+
+{% if not clusters %}
+<div class="card"><div class="empty">
+  No clusters registered yet.
+  <span class="mono">Add one under Clusters before importing.</span>
+</div></div>
+{% else %}
+<div class="card">
+  <div class="pad">
+    <form method="post" action="{{ url_for('import_start') }}">
+      <div class="grid c2" style="margin-bottom:12px">
+        <div>
+          <label for="cluster_id">Target cluster</label>
+          <select id="cluster_id" name="cluster_id" required>
+            {% for c in clusters %}
+            <option value="{{ c.id }}">{{ c.name }} ({{ c.host }})</option>
+            {% endfor %}
+          </select>
+          <div class="hint">The cluster the VM will be imported into.</div>
+        </div>
+        <div>
+          <label for="source_uri">Source location (share URI)</label>
+          <input type="text" id="source_uri" name="source_uri" class="mono-in" required
+                 placeholder="smb://nas.local/backups/hypercore">
+          <div class="hint">SMB folder that holds the export folders. For NFS, or an
+            off-tool export, type the <em>full</em> path to the export folder here and skip
+            the browse step below.</div>
+        </div>
+      </div>
+
+      <div class="grid c2" style="margin-bottom:12px">
+        <div>
+          <label for="smb_user">Share username <span class="hint" style="display:inline">— SMB only</span></label>
+          <input type="text" id="smb_user" name="smb_user" class="mono-in" autocomplete="off"
+                 placeholder="backup-user">
+          <div class="hint">Leave blank for NFS or anonymous shares.</div>
+        </div>
+        <div>
+          <label for="smb_password">Share password <span class="hint" style="display:inline">— SMB only</span></label>
+          <input type="password" id="smb_password" name="smb_password" autocomplete="new-password">
+          <div class="hint">Type it plainly — special characters are escaped for you.</div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px">
+        <button type="button" id="browse-btn">List exports on this share</button>
+        <span id="browse-status" class="hint" style="display:inline; margin-left:8px"></span>
+        <div id="browse-results" style="margin-top:10px"></div>
+      </div>
+      <input type="hidden" id="source_folder" name="source_folder" value="">
+
+      <div class="grid c2" style="margin-bottom:12px">
+        <div>
+          <label for="target_name">Name on target <span class="hint" style="display:inline">— optional</span></label>
+          <input type="text" id="target_name" name="target_name" placeholder="(keep the exported name)">
+          <div class="hint">Blank keeps the exported VM's name. Set a new name to avoid
+            colliding with an existing VM — imports are blocked if the name already exists
+            on the target.</div>
+        </div>
+        <div style="align-self:end">
+          <button class="primary" style="width:100%">Start import</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="font-size:16px; margin:0 0 4px">Recent imports</h2>
+  {% if imports %}
+  <table>
+    <tr><th>Source</th><th>Target cluster</th><th>Name</th><th>Status</th><th>Started</th></tr>
+    {% for i in imports %}
+    <tr>
+      <td class="mono" style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap"
+          title="{{ i.source_uri }}">{{ i.source_uri }}</td>
+      <td>{{ i.cluster_name }}</td>
+      <td>{{ i.target_name or '—' }}
+        {% if i.created_uuid %}<div class="mono" style="color:var(--muted); font-size:11px">{{ i.created_uuid }}</div>{% endif %}
+      </td>
+      <td>
+        {% if i.status == 'COMPLETE' %}<span class="badge on">ok</span>
+        {% elif i.status == 'ERROR' %}<span class="badge err">failed</span>
+        {% else %}<span class="badge run">{{ i.message or 'running' }}</span>{% endif %}
+        {% if i.status == 'ERROR' and i.message %}<div class="hint">{{ i.message }}</div>{% endif %}
+      </td>
+      <td class="mono">{{ i.started_at }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">No imports yet.</div>
+  {% endif %}
+</div>
+
+<script>
+const btn = document.getElementById('browse-btn');
+const statusEl = document.getElementById('browse-status');
+const results = document.getElementById('browse-results');
+const folderField = document.getElementById('source_folder');
+const nameField = document.getElementById('target_name');
+
+function deriveName(folder) {
+  const m = folder.match(/^(.*)_\d{8}-\d{6}$/);
+  return m ? m[1] : folder;
+}
+
+btn.addEventListener('click', async () => {
+  results.innerHTML = '';
+  folderField.value = '';
+  statusEl.textContent = 'Listing…';
+  const body = new URLSearchParams({
+    source_uri: document.getElementById('source_uri').value,
+    smb_user: document.getElementById('smb_user').value,
+    smb_password: document.getElementById('smb_password').value,
+  });
+  try {
+    const resp = await fetch('{{ url_for("import_browse") }}', {method: 'POST', body});
+    const data = await resp.json();
+    if (!resp.ok) { statusEl.textContent = data.error || 'Could not list the share.'; return; }
+    if (!data.folders.length) { statusEl.textContent = 'No folders found on that share.'; return; }
+    statusEl.textContent = data.folders.length + ' folder(s) found — pick one:';
+    data.folders.forEach((f, idx) => {
+      const id = 'folder-' + idx;
+      const row = document.createElement('div');
+      row.className = 'check';
+      row.innerHTML = '<input type="radio" name="folder_pick" id="' + id + '">' +
+                      '<label for="' + id + '" class="mono" style="margin:0">' + f + '</label>';
+      const input = row.querySelector('input');
+      input.addEventListener('change', () => {
+        folderField.value = f;
+        if (!nameField.value) nameField.value = deriveName(f);
+      });
+      results.appendChild(row);
+    });
+  } catch (e) {
+    statusEl.textContent = 'Request failed: ' + e;
+  }
+});
+</script>
+{% endblock %}

@@ -12,16 +12,16 @@
   <table>
     <tr><th>Started</th><th>VM / cluster</th><th>Folder</th><th>Status</th><th>Detail</th></tr>
     {% for r in runs %}
-    <tr>
+    <tr data-run-id="{{ r.id }}">
       <td class="mono">{{ r.started_at }}</td>
       <td><strong>{{ r.vm_name }}</strong><div class="hint">{{ r.cluster_name }}</div></td>
       <td class="mono">{{ r.export_path or '—' }}</td>
-      <td>
+      <td class="run-status">
         {% if r.status == 'COMPLETE' %}<span class="badge on">complete</span>
         {% elif r.status == 'ERROR' %}<span class="badge err">error</span>
         {% else %}<span class="badge run">running</span>{% endif %}
       </td>
-      <td style="max-width:340px">{{ r.message or '' }}
+      <td class="run-detail" style="max-width:340px">{{ r.message or '' }}
         {% if r.task_tag %}<div class="hint mono">task {{ r.task_tag }}</div>{% endif %}
       </td>
     </tr>
@@ -31,4 +31,48 @@
   <div class="empty">No runs recorded yet.</div>
   {% endif %}
 </div>
+
+<script>
+// Live progress via a lightweight poll (see /runs/status). No WebSocket:
+// the connection returns immediately so it never ties up a worker thread.
+(function () {
+  const scheduleId = {{ schedule.id if schedule else 'null' }};
+  const statusUrl = '{{ url_for("runs_status") }}' +
+    (scheduleId ? ('?schedule_id=' + scheduleId) : '');
+
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s == null ? '' : s;
+    return d.innerHTML;
+  }
+  function badge(status) {
+    if (status === 'COMPLETE') return '<span class="badge on">complete</span>';
+    if (status === 'ERROR')    return '<span class="badge err">error</span>';
+    return '<span class="badge run">running</span>';
+  }
+
+  async function poll() {
+    let data;
+    try {
+      const resp = await fetch(statusUrl, {headers: {'X-Requested-With': 'fetch'}});
+      if (!resp.ok) return schedule(false);
+      data = await resp.json();
+    } catch (e) { return schedule(false); }
+
+    for (const r of data.runs) {
+      const row = document.querySelector('tr[data-run-id="' + r.id + '"]');
+      if (!row) { location.reload(); return; }   // a new run appeared
+      row.querySelector('.run-status').innerHTML = badge(r.status);
+      let html = esc(r.message);
+      if (r.task_tag) html += '<div class="hint mono">task ' + esc(r.task_tag) + '</div>';
+      row.querySelector('.run-detail').innerHTML = html;
+    }
+    schedule(data.active);   // keep polling only while something is running
+  }
+
+  function schedule(active) { if (active) setTimeout(poll, 4000); }
+
+  poll();   // one snapshot on load; self-sustains while a run is active
+})();
+</script>
 {% endblock %}

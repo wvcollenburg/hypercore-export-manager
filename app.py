@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import (Flask, flash, jsonify, redirect, render_template, request,
+                   url_for)
 
 import models
 import scheduler
-from exporter import safe_name
+from exporter import client_for, safe_name, smb_list_dirs
 from hypercore import HyperCoreError
-from exporter import client_for
 
 logging.basicConfig(
     level=logging.INFO,
@@ -166,6 +167,90 @@ def runs():
     return render_template("runs.html",
                            runs=models.get_runs(schedule_id),
                            schedule=models.get_schedule(schedule_id) if schedule_id else None)
+
+
+@app.route("/runs/status")
+def runs_status():
+    """Lightweight JSON snapshot the Runs page polls for live progress.
+
+    Returns instantly and holds no connection open -- deliberately a poll,
+    not a WebSocket/SSE stream, so it never ties up one of the worker's
+    limited threads."""
+    schedule_id = request.args.get("schedule_id", type=int)
+    rows = models.get_runs(schedule_id)
+    runs = [{"id": r["id"], "status": r["status"],
+             "message": r["message"] or "", "task_tag": r["task_tag"] or ""}
+            for r in rows]
+    return jsonify(runs=runs, active=any(r["status"] == "RUNNING" for r in runs))
+
+
+# --------------------------------------------------------------------- imports
+def _derive_name(folder: str) -> str:
+    """Strip a `_YYYYMMDD-HHMMSS` export suffix to guess the original VM name."""
+    m = re.match(r"^(.*)_\d{8}-\d{6}$", folder or "")
+    return m.group(1) if m else (folder or "")
+
+
+@app.route("/import")
+def imports():
+    return render_template("import.html",
+                           clusters=models.get_clusters(),
+                           imports=models.get_imports())
+
+
+@app.route("/import/browse", methods=["POST"])
+def import_browse():
+    """AJAX: list the export folders on an SMB share so the user can pick one."""
+    base = request.form.get("source_uri", "").strip()
+    if not base.lower().startswith("smb://"):
+        return jsonify(error="Browsing is only available for smb:// shares. "
+                             "For NFS, type the full source path manually."), 400
+    try:
+        folders = smb_list_dirs(base,
+                                request.form.get("smb_user", "").strip(),
+                                request.form.get("smb_password", ""))
+    except HyperCoreError as e:
+        return jsonify(error=str(e)), 502
+    return jsonify(folders=folders)
+
+
+@app.route("/import/start", methods=["POST"])
+def import_start():
+    cluster_id = int(request.form["cluster_id"])
+    cluster = models.get_cluster(cluster_id)
+    if cluster is None:
+        flash("Target cluster not found.", "error")
+        return redirect(url_for("imports"))
+
+    base = request.form.get("source_uri", "").strip().rstrip("/")
+    folder = request.form.get("source_folder", "").strip().strip("/")
+    if not base:
+        flash("A source path is required.", "error")
+        return redirect(url_for("imports"))
+    source_uri = f"{base}/{folder}" if folder else base
+
+    smb_user = request.form.get("smb_user", "").strip()
+    smb_password = request.form.get("smb_password", "")
+    target_name = request.form.get("target_name", "").strip()
+
+    # Duplicate-name guard: block if the effective name already exists on target.
+    effective = target_name or _derive_name(folder)
+    if effective:
+        try:
+            existing = {(v["name"] or "").lower() for v in client_for(cluster).list_vms()}
+            if effective.lower() in existing:
+                flash(f"Cluster '{cluster['name']}' already has a VM named "
+                      f"'{effective}'. Enter a different target name.", "error")
+                return redirect(url_for("imports"))
+        except HyperCoreError as e:
+            flash(f"Could not verify names on '{cluster['name']}' ({e}). "
+                  "Import not started -- retry when the cluster is reachable.", "error")
+            return redirect(url_for("imports"))
+
+    import_id = models.add_import(cluster_id, source_uri, smb_user, smb_password, target_name)
+    scheduler.run_import(import_id)
+    flash("Import started. Watch progress below.", "ok")
+    return redirect(url_for("imports"))
 
 
 # ------------------------------------------------------------ template helper

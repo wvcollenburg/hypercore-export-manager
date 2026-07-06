@@ -58,6 +58,13 @@ def run_now(schedule_id: int):
                        id=f"manual-{schedule_id}", replace_existing=True)
 
 
+def run_import(import_id: int):
+    """Fire a one-off VM import immediately (in the scheduler's thread pool)."""
+    import importer
+    _scheduler.add_job(importer.run_import, args=[import_id],
+                       id=f"import-{import_id}", replace_existing=True)
+
+
 def start():
     _scheduler.start()
     sync_jobs()

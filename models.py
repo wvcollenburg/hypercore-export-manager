@@ -49,6 +49,21 @@ CREATE TABLE IF NOT EXISTS runs (
     export_path TEXT,
     message     TEXT
 );
+
+CREATE TABLE IF NOT EXISTS imports (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    cluster_id   INTEGER NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
+    source_uri   TEXT NOT NULL,       -- credential-free, for display
+    smb_user     TEXT,                -- optional; SMB share username (NULL for NFS)
+    smb_pass_enc TEXT,                -- optional; Fernet-encrypted share password
+    target_name  TEXT,                -- requested name on the target ('' = keep original)
+    status       TEXT NOT NULL DEFAULT 'RUNNING',  -- RUNNING | COMPLETE | ERROR
+    task_tag     TEXT,
+    created_uuid TEXT,                -- new VM's UUID once the import completes
+    message      TEXT,
+    started_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at  TEXT
+);
 """
 
 
@@ -214,3 +229,40 @@ def is_run_active(schedule_id) -> bool:
             "SELECT COUNT(*) AS n FROM runs WHERE schedule_id = ? AND status = 'RUNNING'",
             (schedule_id,)).fetchone()
         return row["n"] > 0
+
+
+# --------------------------------------------------------------------- imports
+def add_import(cluster_id, source_uri, smb_user, smb_password, target_name):
+    smb_user = (smb_user or "").strip() or None
+    smb_pass_enc = encrypt_password(smb_password) if smb_password else None
+    with db() as conn:
+        cur = conn.execute(
+            "INSERT INTO imports (cluster_id, source_uri, smb_user, smb_pass_enc, "
+            "target_name) VALUES (?,?,?,?,?)",
+            (cluster_id, source_uri.rstrip("/"), smb_user, smb_pass_enc,
+             (target_name or "").strip() or None),
+        )
+        return cur.lastrowid
+
+
+def get_import(import_id):
+    with db() as conn:
+        return conn.execute(
+            "SELECT i.*, c.name AS cluster_name FROM imports i "
+            "JOIN clusters c ON c.id = i.cluster_id WHERE i.id = ?",
+            (import_id,)).fetchone()
+
+
+def get_imports(limit=50):
+    with db() as conn:
+        return conn.execute(
+            "SELECT i.*, c.name AS cluster_name FROM imports i "
+            "JOIN clusters c ON c.id = i.cluster_id ORDER BY i.id DESC LIMIT ?",
+            (limit,)).fetchall()
+
+
+def update_import(import_id, **fields):
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    with db() as conn:
+        conn.execute(f"UPDATE imports SET {sets} WHERE id = ?",
+                     (*fields.values(), import_id))

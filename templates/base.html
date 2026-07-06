@@ -140,6 +140,7 @@ details.addform .pad { border-top: 1px solid var(--line); }
   <nav>
     <a href="{{ url_for('schedules') }}" class="{{ 'active' if request.endpoint == 'schedules' }}">Schedules</a>
     <a href="{{ url_for('clusters') }}" class="{{ 'active' if request.endpoint in ('clusters', 'vms') }}">Clusters</a>
+    <a href="{{ url_for('imports') }}" class="{{ 'active' if request.endpoint == 'imports' }}">Import</a>
     <a href="{{ url_for('runs') }}" class="{{ 'active' if request.endpoint == 'runs' }}">Runs</a>
   </nav>
 </header>

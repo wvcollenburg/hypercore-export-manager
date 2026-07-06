@@ -110,6 +110,33 @@ class HyperCoreClient:
             raise HyperCoreError(f"Export accepted but no taskTag returned: {result}")
         return task_tag
 
+    def import_vm(self, source_uri: str, name: str | None = None,
+                  description: str | None = None, tags: str | None = None,
+                  definition_file: str | None = None) -> tuple[str, str]:
+        """Import a VM from a previously exported image. Mirror of export_vm.
+
+        Returns (taskTag, createdUUID). An optional template overrides the
+        imported VM's name/description/tags -- name is how we avoid colliding
+        with an existing VM when migrating between clusters.
+        """
+        body: dict = {"source": {"pathURI": source_uri}}
+        if definition_file:
+            body["source"]["definitionFileName"] = definition_file
+        template = {}
+        if name:
+            template["name"] = name
+        if description is not None:
+            template["description"] = description
+        if tags is not None:
+            template["tags"] = tags
+        if template:
+            body["template"] = template
+        result = self._request("POST", "/VirDomain/import", json=body) or {}
+        task_tag = result.get("taskTag")
+        if not task_tag:
+            raise HyperCoreError(f"Import accepted but no taskTag returned: {result}")
+        return task_tag, result.get("createdUUID", "")
+
     def task_status(self, task_tag: str) -> dict:
         """Returns {'state': QUEUED|RUNNING|COMPLETE|ERROR, 'progressPercent': int, ...}."""
         data = self._request("GET", f"/TaskTag/{task_tag}") or []

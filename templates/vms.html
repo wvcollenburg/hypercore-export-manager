@@ -54,11 +54,12 @@
                 <span class="mono">{{ safe_name(vm.name) }}_YYYYMMDD-HHMMSS/</span> inside it.</div>
             </div>
             <div>
-              <label>Retention prune path (mount inside this container)</label>
+              <label>Retention prune path <span class="hint" style="display:inline">— NFS / optional</span></label>
               <input type="text" name="prune_path" class="mono-in"
                      placeholder="/mnt/nas/hypercore">
-              <div class="hint">Same folder as above, reached via a local mount.
-                Leave empty to skip automatic pruning.</div>
+              <div class="hint"><strong>SMB shares prune automatically</strong> using the
+                credentials above — leave this blank. Set it only for NFS (or to force
+                pruning through a local mount): a bind-mount of the same folder.</div>
             </div>
           </div>
           <div class="grid c2" style="margin-bottom:12px">
