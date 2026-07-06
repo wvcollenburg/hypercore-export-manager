@@ -16,6 +16,10 @@
     <tr>
       <td>
         <strong>{{ vm.name }}</strong>
+        {% set tags = vm.tags.split(',') | map('trim') | select | list %}
+        {% if tags %}<div style="margin-top:4px">
+          {% for t in tags %}<span class="badge tag">{{ t }}</span> {% endfor %}
+        </div>{% endif %}
         {% if vm.description %}<div class="hint">{{ vm.description }}</div>{% endif %}
         <div class="mono" style="color:var(--muted); font-size:11px">{{ vm.uuid }}</div>
       </td>
@@ -44,8 +48,9 @@
             <div>
               <label>Export destination (NAS URI)</label>
               <input type="text" name="path_uri_base" class="mono-in" required
-                     placeholder="smb://user:password@nas.local/backups/hypercore">
-              <div class="hint">SMB or NFS URI. Each run creates
+                     placeholder="smb://nas.local/backups/hypercore">
+              <div class="hint">SMB or NFS URI <strong>without</strong> a username or password.
+                Each run creates
                 <span class="mono">{{ safe_name(vm.name) }}_YYYYMMDD-HHMMSS/</span> inside it.</div>
             </div>
             <div>
@@ -54,6 +59,21 @@
                      placeholder="/mnt/nas/hypercore">
               <div class="hint">Same folder as above, reached via a local mount.
                 Leave empty to skip automatic pruning.</div>
+            </div>
+          </div>
+          <div class="grid c2" style="margin-bottom:12px">
+            <div>
+              <label>Share username <span class="hint" style="display:inline">— SMB only</span></label>
+              <input type="text" name="smb_user" class="mono-in" autocomplete="off"
+                     placeholder="backup-user">
+              <div class="hint">Leave blank for NFS or anonymous shares.
+                Use <span class="mono">DOMAIN\user</span> if the share is domain-joined.</div>
+            </div>
+            <div>
+              <label>Share password <span class="hint" style="display:inline">— SMB only</span></label>
+              <input type="password" name="smb_password" autocomplete="new-password">
+              <div class="hint">Type it plainly — special characters like
+                <span class="mono">@ : / #</span> are escaped for you, and it's stored encrypted.</div>
             </div>
           </div>
           <div class="grid c4" style="margin-bottom:12px">

@@ -8,6 +8,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from urllib.parse import quote, urlsplit, urlunsplit
+
 import models
 from hypercore import HyperCoreClient, HyperCoreError
 
@@ -23,6 +25,31 @@ TIMESTAMP_FMT = "%Y%m%d-%H%M%S"
 def safe_name(name: str) -> str:
     """VM names can contain characters that are awkward in folder names."""
     return re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("_") or "vm"
+
+
+def build_path_uri(base: str, user: str | None, password: str | None) -> str:
+    """Inject share credentials into a credential-free base URI.
+
+    The user types a clean destination (smb://nas.local/share/path) plus a
+    plain username/password in separate fields; HyperCore's pathURI wants them
+    embedded as smb://user:pass@host/... with special characters percent-
+    encoded. Doing the encoding here means users never hand-escape passwords.
+
+    With no username (e.g. NFS, or an anonymous share) the base is returned
+    unchanged, so a URI that already carries its own credentials still works.
+    """
+    if not user:
+        return base
+    parts = urlsplit(base)
+    userinfo = quote(user, safe="")
+    if password:
+        userinfo += ":" + quote(password, safe="")
+    # Rebuild netloc from host[:port] only, dropping any userinfo already present.
+    host = parts.hostname or parts.netloc
+    netloc = f"{userinfo}@{host}"
+    if parts.port:
+        netloc += f":{parts.port}"
+    return urlunsplit(parts._replace(netloc=netloc))
 
 
 def client_for(cluster_row) -> HyperCoreClient:
@@ -50,7 +77,9 @@ def run_export(schedule_id: int):
 
     run_id = models.start_run(schedule_id)
     folder = f"{safe_name(sched['vm_name'])}_{datetime.now().strftime(TIMESTAMP_FMT)}"
-    path_uri = f"{sched['path_uri_base']}/{folder}"
+    smb_pass = models.decrypt_password(sched["smb_pass_enc"]) if sched["smb_pass_enc"] else None
+    path_uri = build_path_uri(f"{sched['path_uri_base']}/{folder}",
+                              sched["smb_user"], smb_pass)
     models.update_run(run_id, export_path=folder)
     log.info("[%s] Exporting VM '%s' to %s", run_id, sched["vm_name"], folder)
 

@@ -123,6 +123,8 @@ def schedules_add():
             vm_uuid=request.form["vm_uuid"],
             vm_name=request.form["vm_name"],
             path_uri_base=request.form["path_uri_base"].strip(),
+            smb_user=request.form.get("smb_user", "").strip(),
+            smb_password=request.form.get("smb_password", ""),
             prune_path=request.form.get("prune_path", "").strip(),
             retention=retention,
             run_time=f"{int(hh):02d}:{int(mm):02d}",

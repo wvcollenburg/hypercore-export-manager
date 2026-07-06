@@ -13,6 +13,18 @@ class HyperCoreError(Exception):
     pass
 
 
+def first_tag(tags: str) -> str:
+    """The first tag of HyperCore's comma-separated tag string ('' if none)."""
+    return (tags or "").split(",")[0].strip()
+
+
+def _vm_sort_key(vm: dict):
+    tag = first_tag(vm.get("tags", "")).lower()
+    name = (vm.get("name") or "").lower()
+    # tag == "" -> True sorts after False, so untagged VMs land last.
+    return (tag == "", tag, name)
+
+
 class HyperCoreClient:
     def __init__(self, host: str, username: str, password: str,
                  verify_tls: bool = True, timeout: int = 30):
@@ -79,7 +91,9 @@ class HyperCoreClient:
                 "numVCPU": vm.get("numVCPU", 0),
                 "tags": vm.get("tags", ""),
             })
-        return sorted(slim, key=lambda v: (v["name"] or "").lower())
+        # Match the HyperCore UI: group by first tag, then alphabetical by name.
+        # Untagged VMs sort to the bottom (still alphabetical among themselves).
+        return sorted(slim, key=_vm_sort_key)
 
     def export_vm(self, vm_uuid: str, path_uri: str, compress: bool = False) -> str:
         """Start a VM export. Returns the taskTag to poll.

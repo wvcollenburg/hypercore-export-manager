@@ -27,7 +27,9 @@ CREATE TABLE IF NOT EXISTS schedules (
     cluster_id    INTEGER NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
     vm_uuid       TEXT NOT NULL,
     vm_name       TEXT NOT NULL,
-    path_uri_base TEXT NOT NULL,
+    path_uri_base TEXT NOT NULL,       -- credential-free, e.g. smb://nas.local/share/path
+    smb_user      TEXT,                -- optional; SMB share username (NULL for NFS)
+    smb_pass_enc  TEXT,                -- optional; Fernet-encrypted share password
     prune_path    TEXT,
     retention     INTEGER NOT NULL DEFAULT 7,
     run_time      TEXT NOT NULL DEFAULT '03:00',
@@ -87,6 +89,20 @@ def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with db() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
+
+
+def _migrate(conn):
+    """Add columns introduced after the first release to pre-existing DBs.
+
+    CREATE TABLE IF NOT EXISTS won't alter an already-created table, so new
+    columns need explicit ALTERs guarded by a check on the current schema.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(schedules)")}
+    if "smb_user" not in cols:
+        conn.execute("ALTER TABLE schedules ADD COLUMN smb_user TEXT")
+    if "smb_pass_enc" not in cols:
+        conn.execute("ALTER TABLE schedules ADD COLUMN smb_pass_enc TEXT")
 
 
 # ------------------------------------------------------------------- clusters
@@ -117,12 +133,16 @@ def delete_cluster(cluster_id):
 
 # ------------------------------------------------------------------ schedules
 def add_schedule(cluster_id, vm_uuid, vm_name, path_uri_base, prune_path,
-                 retention, run_time, compress):
+                 retention, run_time, compress, smb_user=None, smb_password=None):
+    smb_user = (smb_user or "").strip() or None
+    smb_pass_enc = encrypt_password(smb_password) if smb_password else None
     with db() as conn:
         cur = conn.execute(
             "INSERT INTO schedules (cluster_id, vm_uuid, vm_name, path_uri_base, "
-            "prune_path, retention, run_time, compress) VALUES (?,?,?,?,?,?,?,?)",
+            "smb_user, smb_pass_enc, prune_path, retention, run_time, compress) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (cluster_id, vm_uuid, vm_name, path_uri_base.rstrip("/"),
+             smb_user, smb_pass_enc,
              (prune_path or "").rstrip("/") or None, retention, run_time, int(compress)),
         )
         return cur.lastrowid
