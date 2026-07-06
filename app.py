@@ -164,9 +164,18 @@ def schedules_run(schedule_id):
 @app.route("/runs")
 def runs():
     schedule_id = request.args.get("schedule_id", type=int)
+    # Imports aren't tied to a schedule, so only show them in the unfiltered view.
+    imports = [] if schedule_id else models.get_imports()
     return render_template("runs.html",
                            runs=models.get_runs(schedule_id),
+                           imports=imports,
                            schedule=models.get_schedule(schedule_id) if schedule_id else None)
+
+
+def _status_list(rows):
+    return [{"id": r["id"], "status": r["status"],
+             "message": r["message"] or "", "task_tag": r["task_tag"] or ""}
+            for r in rows]
 
 
 @app.route("/runs/status")
@@ -175,13 +184,12 @@ def runs_status():
 
     Returns instantly and holds no connection open -- deliberately a poll,
     not a WebSocket/SSE stream, so it never ties up one of the worker's
-    limited threads."""
+    limited threads. Covers both export runs and imports."""
     schedule_id = request.args.get("schedule_id", type=int)
-    rows = models.get_runs(schedule_id)
-    runs = [{"id": r["id"], "status": r["status"],
-             "message": r["message"] or "", "task_tag": r["task_tag"] or ""}
-            for r in rows]
-    return jsonify(runs=runs, active=any(r["status"] == "RUNNING" for r in runs))
+    runs = _status_list(models.get_runs(schedule_id))
+    imports = [] if schedule_id else _status_list(models.get_imports())
+    active = any(r["status"] == "RUNNING" for r in (*runs, *imports))
+    return jsonify(runs=runs, imports=imports, active=active)
 
 
 # --------------------------------------------------------------------- imports
@@ -193,9 +201,7 @@ def _derive_name(folder: str) -> str:
 
 @app.route("/import")
 def imports():
-    return render_template("import.html",
-                           clusters=models.get_clusters(),
-                           imports=models.get_imports())
+    return render_template("import.html", clusters=models.get_clusters())
 
 
 @app.route("/import/browse", methods=["POST"])
@@ -249,8 +255,8 @@ def import_start():
 
     import_id = models.add_import(cluster_id, source_uri, smb_user, smb_password, target_name)
     scheduler.run_import(import_id)
-    flash("Import started. Watch progress below.", "ok")
-    return redirect(url_for("imports"))
+    flash("Import started. Watch progress on the Runs page.", "ok")
+    return redirect(url_for("runs"))
 
 
 # ------------------------------------------------------------ template helper

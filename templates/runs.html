@@ -32,6 +32,34 @@
   {% endif %}
 </div>
 
+{% if imports %}
+<div class="card">
+  <h2 style="font-size:16px; margin:0 0 4px">Imports</h2>
+  <table>
+    <tr><th>Started</th><th>Source</th><th>Target cluster</th><th>Name</th><th>Status</th><th>Detail</th></tr>
+    {% for i in imports %}
+    <tr data-import-id="{{ i.id }}">
+      <td class="mono">{{ i.started_at }}</td>
+      <td class="mono" style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap"
+          title="{{ i.source_uri }}">{{ i.source_uri }}</td>
+      <td>{{ i.cluster_name }}</td>
+      <td>{{ i.target_name or '—' }}
+        {% if i.created_uuid %}<div class="mono" style="color:var(--muted); font-size:11px">{{ i.created_uuid }}</div>{% endif %}
+      </td>
+      <td class="run-status">
+        {% if i.status == 'COMPLETE' %}<span class="badge on">complete</span>
+        {% elif i.status == 'ERROR' %}<span class="badge err">error</span>
+        {% else %}<span class="badge run">running</span>{% endif %}
+      </td>
+      <td class="run-detail" style="max-width:320px">{{ i.message or '' }}
+        {% if i.task_tag %}<div class="hint mono">task {{ i.task_tag }}</div>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
 <script>
 // Live progress via a lightweight poll (see /runs/status). No WebSocket:
 // the connection returns immediately so it never ties up a worker thread.
@@ -51,6 +79,18 @@
     return '<span class="badge run">running</span>';
   }
 
+  function apply(items, attr) {
+    for (const r of items) {
+      const row = document.querySelector('tr[' + attr + '="' + r.id + '"]');
+      if (!row) { location.reload(); return false; }   // a new task appeared
+      row.querySelector('.run-status').innerHTML = badge(r.status);
+      let html = esc(r.message);
+      if (r.task_tag) html += '<div class="hint mono">task ' + esc(r.task_tag) + '</div>';
+      row.querySelector('.run-detail').innerHTML = html;
+    }
+    return true;
+  }
+
   async function poll() {
     let data;
     try {
@@ -59,14 +99,8 @@
       data = await resp.json();
     } catch (e) { return schedule(false); }
 
-    for (const r of data.runs) {
-      const row = document.querySelector('tr[data-run-id="' + r.id + '"]');
-      if (!row) { location.reload(); return; }   // a new run appeared
-      row.querySelector('.run-status').innerHTML = badge(r.status);
-      let html = esc(r.message);
-      if (r.task_tag) html += '<div class="hint mono">task ' + esc(r.task_tag) + '</div>';
-      row.querySelector('.run-detail').innerHTML = html;
-    }
+    if (!apply(data.runs, 'data-run-id')) return;
+    if (!apply(data.imports || [], 'data-import-id')) return;
     schedule(data.active);   // keep polling only while something is running
   }
 

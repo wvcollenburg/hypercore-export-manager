@@ -3,7 +3,8 @@
 {% block content %}
 <h2>Import a VM</h2>
 <p class="sub">Restore an exported VM, or migrate one to another cluster, by importing
-  it from the share. Each import creates a new VM on the target cluster.</p>
+  it from the share. Each import creates a new VM on the target cluster —
+  track progress on the <a href="{{ url_for('runs') }}">Runs</a> page.</p>
 
 {% if not clusters %}
 <div class="card"><div class="empty">
@@ -71,34 +72,6 @@
   </div>
 </div>
 {% endif %}
-
-<div class="card">
-  <h2 style="font-size:16px; margin:0 0 4px">Recent imports</h2>
-  {% if imports %}
-  <table>
-    <tr><th>Source</th><th>Target cluster</th><th>Name</th><th>Status</th><th>Started</th></tr>
-    {% for i in imports %}
-    <tr>
-      <td class="mono" style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap"
-          title="{{ i.source_uri }}">{{ i.source_uri }}</td>
-      <td>{{ i.cluster_name }}</td>
-      <td>{{ i.target_name or '—' }}
-        {% if i.created_uuid %}<div class="mono" style="color:var(--muted); font-size:11px">{{ i.created_uuid }}</div>{% endif %}
-      </td>
-      <td>
-        {% if i.status == 'COMPLETE' %}<span class="badge on">ok</span>
-        {% elif i.status == 'ERROR' %}<span class="badge err">failed</span>
-        {% else %}<span class="badge run">{{ i.message or 'running' }}</span>{% endif %}
-        {% if i.status == 'ERROR' and i.message %}<div class="hint">{{ i.message }}</div>{% endif %}
-      </td>
-      <td class="mono">{{ i.started_at }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  {% else %}
-  <div class="empty">No imports yet.</div>
-  {% endif %}
-</div>
 
 <script>
 const btn = document.getElementById('browse-btn');
